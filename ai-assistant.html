@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NEURAL // ASSISTANT</title>
+<style>
+  :root{
+    --bg:#050705;
+    --panel:#0a100c;
+    --grid:#0f1a12;
+    --neon:#39ff88;
+    --neon-dim:#1c6b3d;
+    --amber:#ffb347;
+    --red:#ff4d4d;
+    --text:#c9ffdf;
+    --mono:'JetBrains Mono','Courier New',monospace;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--text); font-family:var(--mono);
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  /* CRT scanline + vignette overlay */
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:50;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 1px, transparent 1px, transparent 3px);
+    mix-blend-mode:multiply;
+  }
+  body::after{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:49;
+    background:radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.55) 100%);
+  }
+  header{
+    padding:14px 16px 10px; border-bottom:1px solid var(--neon-dim);
+    display:flex; align-items:center; justify-content:space-between; position:relative; z-index:2;
+    background:linear-gradient(180deg, #081008, transparent);
+  }
+  header .title{ font-size:14px; letter-spacing:3px; color:var(--neon); text-shadow:0 0 8px var(--neon-dim); }
+  header .sub{ font-size:10px; color:var(--neon-dim); letter-spacing:1px; margin-top:2px; }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--neon); box-shadow:0 0 6px var(--neon); animation:pulse 1.6s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+  .headline-row{ display:flex; align-items:center; gap:8px; }
+
+  #chat{
+    flex:1; overflow-y:auto; padding:14px 12px 8px; position:relative; z-index:2;
+    background-image: linear-gradient(rgba(57,255,136,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(57,255,136,0.03) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  .msg{ max-width:88%; margin-bottom:14px; font-size:13.5px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+  .msg .tag{ font-size:10px; letter-spacing:2px; opacity:.6; display:block; margin-bottom:3px; }
+  .msg.user{ margin-left:auto; text-align:right; color:var(--amber); }
+  .msg.user .tag{ color:var(--amber); }
+  .msg.bot{ color:var(--text); border-left:2px solid var(--neon-dim); padding-left:10px; }
+  .msg.bot .tag{ color:var(--neon); }
+  .msg.sys{ color:var(--neon-dim); font-size:11px; text-align:center; max-width:100%; }
+  .typing{ display:inline-flex; gap:4px; padding-left:10px; }
+  .typing span{ width:5px; height:5px; background:var(--neon); border-radius:50%; animation:blink 1s infinite; }
+  .typing span:nth-child(2){ animation-delay:.2s; } .typing span:nth-child(3){ animation-delay:.4s; }
+  @keyframes blink{ 0%,80%,100%{opacity:.2;} 40%{opacity:1;} }
+
+  form#inputRow{
+    display:flex; gap:8px; padding:10px 12px calc(12px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--neon-dim); position:relative; z-index:2; background:#060a06;
+  }
+  #inputRow input{
+    flex:1; background:var(--panel); border:1px solid var(--neon-dim); color:var(--text);
+    font-family:var(--mono); font-size:14px; padding:10px 12px; border-radius:2px; outline:none;
+  }
+  #inputRow input:focus{ border-color:var(--neon); box-shadow:0 0 6px rgba(57,255,136,.3); }
+  #inputRow button{
+    background:var(--neon); color:#03150a; border:none; padding:0 16px; font-family:var(--mono);
+    font-weight:700; letter-spacing:1px; border-radius:2px; cursor:pointer;
+  }
+  #inputRow button:active{ transform:scale(.96); }
+  #inputRow button:disabled{ background:var(--neon-dim); color:#0a1a10; }
+  #attachBtn{
+    background:transparent; border:1px solid var(--neon-dim); color:var(--neon);
+    padding:0 12px; font-size:16px;
+  }
+
+  ::-webkit-scrollbar{ width:5px; }
+  ::-webkit-scrollbar-thumb{ background:var(--neon-dim); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="headline-row"><span class="dot"></span><span class="title">NEURAL // ASSISTANT</span></div>
+    <div class="sub">notepad + storage :: full-access :: memory persistent</div>
+  </div>
+</header>
+
+<div id="chat"></div>
+
+<form id="inputRow">
+  <input type="file" id="fileInput" accept="image/*,video/*" style="display:none">
+  <button type="button" id="attachBtn" title="ছবি/ভিডিও অ্যাটাচ করো">📎</button>
+  <input id="msgInput" type="text" placeholder="কিছু লেখো... (কবিতা লিখে নোট সেভ করো)" autocomplete="off" />
+  <button id="sendBtn" type="submit">SEND</button>
+</form>
+
+<script>
+  // ⚠️ নিজের Cloudflare Worker URL এখানে বসাও
+  const WORKER_URL = "https://YOUR-WORKER-SUBDOMAIN.workers.dev";
+
+  // csm-storage app এর মতোই একই Cloudinary cloud/preset ব্যবহার করছি
+  const CLOUDINARY_CLOUD = "dgxbcqtly";
+  const CLOUDINARY_PRESET = "github_unsigned";
+
+  const chat = document.getElementById('chat');
+  const form = document.getElementById('inputRow');
+  const input = document.getElementById('msgInput');
+  const sendBtn = document.getElementById('sendBtn');
+  const attachBtn = document.getElementById('attachBtn');
+  const fileInput = document.getElementById('fileInput');
+
+  function addMsg(role, text){
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = role === 'user' ? '> GEGE' : role === 'bot' ? '> ASSISTANT' : '';
+    div.appendChild(tag);
+    const body = document.createElement('span');
+    body.textContent = text;
+    div.appendChild(body);
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
+
+  function addTyping(){
+    const div = document.createElement('div');
+    div.className = 'msg bot';
+    div.id = 'typingIndicator';
+    div.innerHTML = '<span class="tag">> ASSISTANT</span><span class="typing"><span></span><span></span><span></span></span>';
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+  }
+  function removeTyping(){
+    const t = document.getElementById('typingIndicator');
+    if(t) t.remove();
+  }
+
+  addMsg('sys', 'সিস্টেম রেডি। নোটপ্যাড আর স্টোরেজ দুটোতেই অ্যাক্সেস আছে। 📎 চেপে ছবি/ভিডিও অ্যাটাচ করেও গ্যালারিতে সেভ করা যাবে।');
+
+  async function sendToAssistant(text, attachment) {
+    addMsg('user', text || (attachment ? '(অ্যাটাচড ফাইল সেভ করো)' : ''));
+    input.value = '';
+    input.disabled = true; sendBtn.disabled = true; attachBtn.disabled = true;
+    addTyping();
+
+    const body = { message: text || '' };
+    if (attachment) body.attachment = attachment;
+
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      removeTyping();
+      addMsg('bot', data.reply || '(খালি রিপ্লাই এসেছে)');
+    } catch (err) {
+      removeTyping();
+      addMsg('sys', '⚠️ কানেকশন এরর: ' + err.message);
+    } finally {
+      input.disabled = false; sendBtn.disabled = false; attachBtn.disabled = false; input.focus();
+    }
+  }
+
+  attachBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+
+    addMsg('sys', `📎 আপলোড হচ্ছে: ${file.name} ...`);
+    attachBtn.disabled = true;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('upload_preset', CLOUDINARY_PRESET);
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/auto/upload`, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!data.secure_url) throw new Error(data.error?.message || 'আপলোড ব্যর্থ হয়েছে');
+
+      const attachment = {
+        url: data.secure_url,
+        cat: file.type.startsWith('video') ? 'video' : 'image',
+        name: file.name.replace(/\.[^.]+$/, ''),
+        size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+      };
+      addMsg('sys', '✅ আপলোড সম্পন্ন, গ্যালারিতে সেভ করা হচ্ছে...');
+      // কিছু না বললেও সাথে সাথে সেভ হয়ে যাবে — Send চাপার দরকার নেই
+      const caption = input.value.trim();
+      input.value = '';
+      await sendToAssistant(caption || 'এই ফাইলটা গ্যালারিতে সেভ করো', attachment);
+    } catch (err) {
+      addMsg('sys', '⚠️ আপলোড এরর: ' + err.message);
+      attachBtn.disabled = false;
+    }
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    await sendToAssistant(text, null);
+  });
+</script>
+</body>
+</html>
