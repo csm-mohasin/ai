@@ -104,11 +104,9 @@
 
 <script>
   // ⚠️ নিজের Cloudflare Worker URL এখানে বসাও
-  const WORKER_URL = "https://api.csm-mohasin.workers.dev/";
-
-  // csm-storage app এর মতোই একই Cloudinary cloud/preset ব্যবহার করছি
-  const CLOUDINARY_CLOUD = "dgxbcqtly";
-  const CLOUDINARY_PRESET = "github_unsigned";
+  const WORKER_URL = "https://mahi.csm-mohasin.workers.dev/";
+  // ফাইল upload এখন worker এর ভিতর দিয়ে (signed, server-side) হয় — browser সরাসরি Cloudinary ছুঁবে না
+  const UPLOAD_URL = WORKER_URL.replace(/\/?$/, "/") + "upload";
 
   const chat = document.getElementById('chat');
   const form = document.getElementById('inputRow');
@@ -185,8 +183,7 @@
     try {
       const fd = new FormData();
       fd.append('file', file);
-      fd.append('upload_preset', CLOUDINARY_PRESET);
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/auto/upload`, { method: 'POST', body: fd });
+      const res = await fetch(UPLOAD_URL, { method: 'POST', body: fd });
       const data = await res.json();
       if (!data.secure_url) {
         throw new Error(`HTTP ${res.status} — ${JSON.stringify(data)}`);
